@@ -506,8 +506,7 @@
 
     <script>
         // Класс калькулятора (перенесен из Python)
-        // Вставь этот исправленный класс вместо старого
-        class TireRotationCalculator {
+                class TireRotationCalculator {
             constructor() {
                 this.monthly_mileage = null;
                 this.new_tire_wear_rate = null;
@@ -526,10 +525,11 @@
             calculateRotation(vehicles, new_tires_ngp, spare_tires, rotation_standard, max_wear_standard, months) {
                 const results = [];
                 
+                // НОВЫЕ ШИНЫ: как в Python - с НГП от пользователя
                 let current_new_tires = new_tires_ngp.map(ngp => ({
-                    current_ogp: ngp,
-                    initial_ngp: ngp,
-                    wear_rate: null,
+                    current_ogp: ngp,      // Текущий = начальный для новых
+                    initial_ngp: ngp,      // Начальный НГП
+                    wear_rate: null,       // Ещё не известно
                     is_new: true
                 }));
                 
@@ -568,9 +568,10 @@
                 }));
             }
             
+            // ПРОВЕРКА ПАРЫ ПЕРЕДНИХ ШИН (как в Python)
             _checkFrontAxlePair(tire1, tire2) {
                 const diff = Math.abs(tire1.current_ogp - tire2.current_ogp);
-                return diff <= this.max_ogp_diff_front;
+                return diff <= this.max_ogp_diff_front; // 5 мм
             }
             
             _calculateMonth(vehicles, new_tires, spare_tires, new_tires_counter, rotation_standard, max_wear_standard, month, stats) {
@@ -582,9 +583,9 @@
                 let current_spare_tires = [...spare_tires];
                 let current_new_tires_counter = new_tires_counter;
                 
-                // Расчет износа за месяц
+                // 1. РАСЧЕТ ИЗНОСА (точно как в Python)
                 for (const vehicle of vehicles) {
-                    // Передняя ось
+                    // ПЕРЕДНЯЯ ОСЬ
                     for (const tire of vehicle.front_axle) {
                         let wear_per_month;
                         if (tire.is_new || tire.wear_rate === null) {
@@ -597,46 +598,46 @@
                         tire.current_ogp = Math.max(0, tire.current_ogp - wear_per_month);
                     }
                     
-                    // Задняя ось
+                    // ЗАДНЯЯ ОСЬ
                     for (const tire of vehicle.rear_axle) {
                         const wear_per_month = this.monthly_mileage / tire.wear_rate;
                         tire.current_ogp = Math.max(0, tire.current_ogp - wear_per_month);
                     }
                 }
                 
-                // ШАГ 1: Замена на передней оси (ТОЧНО КАК В ПАЙТОН)
+                // 2. ЗАМЕНА НА ПЕРЕДНЕЙ ОСИ (ВСЕ ПРОВЕРКИ КАК В PYTHON)
                 const tires_to_spare = [];
                 
                 for (const vehicle of vehicles) {
                     let needs_replacement = false;
                     
-                    // Проверяем пару передних шин
-                    if (vehicle.front_axle.length === 2) {
-                        const [tire1, tire2] = vehicle.front_axle;
-                        const rotation_threshold1 = tire1.initial_ngp - rotation_standard;
-                        const rotation_threshold2 = tire2.initial_ngp - rotation_standard;
-                        
-                        // В оригинале: если ЛЮБАЯ шина достигла порога И пара не сбалансирована
-                        const tire1_needs = tire1.current_ogp <= rotation_threshold1;
-                        const tire2_needs = tire2.current_ogp <= rotation_threshold2;
-                        const pair_ok = this._checkFrontAxlePair(tire1, tire2);
-                        
-                        needs_replacement = (tire1_needs || tire2_needs) && !pair_ok;
+                    // Проверяем КАЖДУЮ шину на передней оси
+                    for (const tire of vehicle.front_axle) {
+                        const rotation_threshold = tire.initial_ngp - rotation_standard;
+                        if (tire.current_ogp <= rotation_threshold) {
+                            needs_replacement = true;
+                            break;
+                        }
                     }
                     
+                    // ЕСЛИ НУЖНА ЗАМЕНА - меняем ВСЕ 2 шины
                     if (needs_replacement) {
-                        // Всегда нужно 2 шины для замены на передней оси
                         const needed_tires = 2;
                         front_replacements += 2;
                         stats.total_front_replacements += 2;
                         
+                        // Уменьшаем счетчик новых шин
                         current_new_tires_counter -= needed_tires;
                         
+                        // Берем 2 новые шины
                         for (let i = 0; i < 2; i++) {
                             let new_tire;
+                            
+                            // Пытаемся взять реальную шину из списка
                             if (current_new_tires.length > 0) {
                                 new_tire = current_new_tires.shift();
                             } else {
+                                // Виртуальная шина с НГП от пользователя
                                 new_tire = {
                                     current_ogp: this.new_tire_ngp,
                                     initial_ngp: this.new_tire_ngp,
@@ -645,42 +646,48 @@
                                 };
                             }
                             
+                            // Снимаем старую шину
                             const old_tire = {...vehicle.front_axle[i]};
+                            
+                            // Меняем скорость износа для подмены (как в Python)
                             if (old_tire.wear_rate !== this.new_tire_wear_rate) {
                                 old_tire.wear_rate = this.spare_from_front_wear_rate;
                                 delete old_tire.is_new;
                             }
+                            
                             tires_to_spare.push(old_tire);
                             
+                            // Ставим новую шину
                             vehicle.front_axle[i] = new_tire;
                         }
                     }
                 }
                 
+                // Добавляем снятые шины в подмену
                 current_spare_tires.push(...tires_to_spare);
                 
-                // ШАГ 2: Замена на задней оси (ТОЧНО КАК В ПАЙТОН)
+                // 3. ЗАМЕНА НА ЗАДНЕЙ ОСИ (точно как в Python)
                 for (const vehicle of vehicles) {
                     for (let i = 0; i < vehicle.rear_axle.length; i++) {
                         const tire = vehicle.rear_axle[i];
                         if (tire.current_ogp <= max_wear_standard) {
-                            rear_needed++;
+                            rear_needed += 1;
                             
-                            // Пытаемся взять из подмены
+                            // Сначала из подмены
                             if (current_spare_tires.length > 0) {
-                                rear_replacements++;
-                                stats.total_rear_replacements++;
+                                rear_replacements += 1;
+                                stats.total_rear_replacements += 1;
                                 const spare_tire = current_spare_tires.shift();
                                 vehicle.rear_axle[i] = spare_tire;
                             } 
-                            // Если нет в подмене, берем новые
+                            // Потом новые шины
                             else {
-                                rear_replacements++;
-                                stats.total_rear_replacements++;
+                                rear_replacements += 1;
+                                stats.total_rear_replacements += 1;
                                 
-                                current_new_tires_counter--;
-                                new_tires_used_for_rear_this_month++;
-                                stats.new_tires_used_for_rear++;
+                                current_new_tires_counter -= 1;
+                                new_tires_used_for_rear_this_month += 1;
+                                stats.new_tires_used_for_rear += 1;
                                 
                                 if (current_new_tires.length > 0) {
                                     const new_tire = current_new_tires.shift();
@@ -688,6 +695,7 @@
                                     delete new_tire.is_new;
                                     vehicle.rear_axle[i] = new_tire;
                                 }
+                                // Если нет новых - просто пропускаем (как в Python)
                             }
                         }
                     }
@@ -709,16 +717,12 @@
                 };
             }
         }
-        // Вспомогательные функции
-        function parseNumber(value) {
-            if (!value) return 0;
-            const str = String(value).replace(',', '.');
-            const num = parseFloat(str);
-            return isNaN(num) ? 0 : num;
-        }
-
+        
+        // ИСПРАВЛЕННАЯ ФУНКЦИЯ ГРУППИРОВКИ (точно как в Python)
         function groupTiresByVehicle(tiresData) {
             const tiresByVehicle = {};
+            
+            // Группируем по ТС
             for (const tire of tiresData) {
                 const vehicle_name = tire.vehicle_name;
                 if (!tiresByVehicle[vehicle_name]) {
@@ -728,11 +732,28 @@
             }
             
             const vehicles = [];
+            
+            // Для каждого ТС
             for (const vehicle_name in tiresByVehicle) {
-                const tires_list = tiresByVehicle[vehicle_name];
+                let tires_list = tiresByVehicle[vehicle_name];
                 
-                tires_list.sort((a, b) => (b.initial_ngp - b.current_ogp) - (a.initial_ngp - a.current_ogp));
+                // Проверка на кратность 6 (как в Python)
+                if (tires_list.length % 6 !== 0) {
+                    console.warn(`У ТС ${vehicle_name} ${tires_list.length} шин, должно быть кратно 6`);
+                    // Продолжаем, но предупреждаем
+                }
+                
+                // ВАЖНО: СОРТИРОВКА КАК В PYTHON!
+                // Сортируем по остаточному ресурсу (НГП - ОГП) - от меньшего к большему
+                tires_list.sort((a, b) => {
+                    const resourceA = a.initial_ngp - a.current_ogp;
+                    const resourceB = b.initial_ngp - b.current_ogp;
+                    return resourceA - resourceB; // Самые изношенные первые
+                });
+                
+                // Первые 2 - на переднюю ось (самые изношенные)
                 const front_axle = tires_list.slice(0, 2);
+                // Остальные - на заднюю ось
                 const rear_axle = tires_list.slice(2);
                 
                 vehicles.push({
@@ -743,6 +764,14 @@
             }
             
             return vehicles;
+        }
+        
+        // ФУНКЦИЯ ПАРСИНГА ЧИСЕЛ (поддерживает запятые)
+        function parseNumber(value) {
+            if (!value && value !== 0) return 0;
+            const str = String(value).replace(',', '.');
+            const num = parseFloat(str);
+            return isNaN(num) ? 0 : num;
         }
 
         // Функция динамического расчета износа

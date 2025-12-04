@@ -131,6 +131,27 @@
             font-family: monospace;
         }
 
+        .wear-calculation {
+            margin-top: 10px;
+            padding: 10px;
+            background: rgba(52, 152, 219, 0.1);
+            border-radius: 6px;
+            font-size: 0.9rem;
+            color: #2c3e50;
+            border-left: 3px solid #3498db;
+        }
+        
+        .wear-item {
+            margin: 5px 0;
+            padding: 5px;
+            display: flex;
+            justify-content: space-between;
+        }
+        
+        .wear-item strong {
+            color: #e74c3c;
+        }
+
         .form-actions {
             display: flex;
             justify-content: center;
@@ -374,6 +395,9 @@
                             <div class="form-group">
                                 <label for="spare_from_front_wear_rate">Скорость износа (подмена):</label>
                                 <input type="text" id="spare_from_front_wear_rate" name="spare_from_front_wear_rate" required>
+                                <div class="wear-calculation" id="wearInfo">
+                                    <!-- Здесь будет расчет износа -->
+                                </div>
                             </div>
                             <div class="form-group">
                                 <label for="new_tire_ngp">НГП новых шин (мм):</label>
@@ -476,528 +500,236 @@
         </div>
 
         <footer>
-            <p>Веб-приложение для расчета ротации шин &copy; 2025</p>
+            <p>Веб-приложение для расчета ротации шин &copy; 2024</p>
         </footer>
     </div>
 
-      <script>
-      // Класс калькулятора (перенесен из Python)
-      class TireRotationCalculator {
-          constructor() {
-              this.monthly_mileage = null;
-              this.new_tire_wear_rate = null;
-              this.spare_from_front_wear_rate = null;
-              this.new_tire_ngp = 80;
-              this.max_ogp_diff_front = 5;
-          }
-          
-          setConstants(monthly_mileage, new_tire_wear_rate, spare_from_front_wear_rate, new_tire_ngp) {
-              this.monthly_mileage = monthly_mileage;
-              this.new_tire_wear_rate = new_tire_wear_rate;
-              this.spare_from_front_wear_rate = spare_from_front_wear_rate;
-              this.new_tire_ngp = new_tire_ngp;
-          }
-          
-          calculateRotation(vehicles, new_tires_ngp, spare_tires, rotation_standard, max_wear_standard, months) {
-              const results = [];
-              
-              let current_new_tires = new_tires_ngp.map(ngp => ({
-                  current_ogp: ngp,
-                  initial_ngp: ngp,
-                  wear_rate: null,
-                  is_new: true
-              }));
-              
-              let current_spare_tires = [...spare_tires];
-              let current_vehicles = this._copyVehicles(vehicles);
-              
-              let new_tires_counter = new_tires_ngp.length;
-              
-              const stats = {
-                  new_tires_used_for_rear: 0,
-                  total_rear_replacements: 0,
-                  total_front_replacements: 0,
-              };
-              
-              for (let month = 1; month <= months; month++) {
-                  const month_result = this._calculateMonth(
-                      current_vehicles, current_new_tires, current_spare_tires, new_tires_counter,
-                      rotation_standard, max_wear_standard, month, stats
-                  );
-                  results.push(month_result);
-                  
-                  current_new_tires = month_result.new_tires_end;
-                  current_spare_tires = month_result.spare_tires_end;
-                  new_tires_counter = month_result.new_tires_counter;
-                  current_vehicles = month_result.vehicles_state;
-              }
-              
-              return { results, stats };
-          }
-          
-          _copyVehicles(vehicles) {
-              return vehicles.map(vehicle => ({
-                  name: vehicle.name,
-                  front_axle: vehicle.front_axle.map(tire => ({...tire})),
-                  rear_axle: vehicle.rear_axle.map(tire => ({...tire}))
-              }));
-          }
-          
-          _calculateMonth(vehicles, new_tires, spare_tires, new_tires_counter, rotation_standard, max_wear_standard, month, stats) {
-              let front_replacements = 0;
-              let rear_replacements = 0;
-              let rear_needed = 0;
-              let new_tires_used_for_rear_this_month = 0;
-              let current_new_tires = [...new_tires];
-              let current_spare_tires = [...spare_tires];
-              let current_new_tires_counter = new_tires_counter;
-              
-              // Расчет износа за месяц
-              for (const vehicle of vehicles) {
-                  // Передняя ось
-                  for (const tire of vehicle.front_axle) {
-                      let wear_per_month;
-                      if (tire.is_new || tire.wear_rate === null) {
-                          wear_per_month = this.monthly_mileage / this.new_tire_wear_rate;
-                          tire.wear_rate = this.new_tire_wear_rate;
-                          tire.is_new = false;
-                      } else {
-                          wear_per_month = this.monthly_mileage / tire.wear_rate;
-                      }
-                      tire.current_ogp = Math.max(0, tire.current_ogp - wear_per_month);
-                  }
-                  
-                  // Задняя ось
-                  for (const tire of vehicle.rear_axle) {
-                      const wear_per_month = this.monthly_mileage / tire.wear_rate;
-                      tire.current_ogp = Math.max(0, tire.current_ogp - wear_per_month);
-                  }
-              }
-              
-              // ШАГ 1: Замена на передней оси
-              const tires_to_spare = [];
-              
-              for (const vehicle of vehicles) {
-                  let needs_replacement = false;
-                  for (const tire of vehicle.front_axle) {
-                      const rotation_threshold = tire.initial_ngp - rotation_standard;
-                      if (tire.current_ogp <= rotation_threshold) {
-                          needs_replacement = true;
-                          break;
-                      }
-                  }
-                  
-                  if (needs_replacement) {
-                      const needed_tires = 2;
-                      front_replacements += 2;
-                      stats.total_front_replacements += 2;
-                      
-                      current_new_tires_counter -= needed_tires;
-                      
-                      for (let i = 0; i < 2; i++) {
-                          let new_tire;
-                          if (current_new_tires.length > 0) {
-                              new_tire = current_new_tires.shift();
-                          } else {
-                              new_tire = {
-                                  current_ogp: this.new_tire_ngp,
-                                  initial_ngp: this.new_tire_ngp,
-                                  wear_rate: this.new_tire_wear_rate,
-                                  is_new: true
-                              };
-                          }
-                          
-                          const old_tire = {...vehicle.front_axle[i]};
-                          if (old_tire.wear_rate !== this.new_tire_wear_rate) {
-                              old_tire.wear_rate = this.spare_from_front_wear_rate;
-                              delete old_tire.is_new;
-                          }
-                          tires_to_spare.push(old_tire);
-                          
-                          vehicle.front_axle[i] = new_tire;
-                      }
-                  }
-              }
-              
-              current_spare_tires.push(...tires_to_spare);
-              
-              // ШАГ 2: Замена на задней оси
-              for (const vehicle of vehicles) {
-                  for (let i = 0; i < vehicle.rear_axle.length; i++) {
-                      const tire = vehicle.rear_axle[i];
-                      if (tire.current_ogp <= max_wear_standard) {
-                          rear_needed++;
-                          
-                          if (current_spare_tires.length > 0) {
-                              rear_replacements++;
-                              stats.total_rear_replacements++;
-                              const spare_tire = current_spare_tires.shift();
-                              vehicle.rear_axle[i] = spare_tire;
-                          } else {
-                              rear_replacements++;
-                              stats.total_rear_replacements++;
-                              
-                              current_new_tires_counter--;
-                              new_tires_used_for_rear_this_month++;
-                              stats.new_tires_used_for_rear++;
-                              
-                              if (current_new_tires.length > 0) {
-                                  const new_tire = current_new_tires.shift();
-                                  new_tire.wear_rate = this.spare_from_front_wear_rate;
-                                  delete new_tire.is_new;
-                                  vehicle.rear_axle[i] = new_tire;
-                              }
-                          }
-                      }
-                  }
-              }
-              
-              return {
-                  month: month,
-                  new_tires_start: new_tires_counter,
-                  spare_tires_start: spare_tires.length,
-                  front_replacements: front_replacements,
-                  rear_replacements: rear_replacements,
-                  rear_needed: rear_needed,
-                  new_tires_used_for_rear: new_tires_used_for_rear_this_month,
-                  new_tires_end: current_new_tires,
-                  new_tires_counter: current_new_tires_counter,
-                  spare_tires_end: current_spare_tires,
-                  spare_deficit: 0,
-                  vehicles_state: vehicles
-              };
-          }
-      }
-  
-      // Вспомогательные функции
-      function parseNumber(value) {
-          if (!value) return 0;
-          const str = String(value).replace(',', '.');
-          const num = parseFloat(str);
-          return isNaN(num) ? 0 : num;
-      }
-  
-      function groupTiresByVehicle(tiresData) {
-          const tiresByVehicle = {};
-          for (const tire of tiresData) {
-              const vehicle_name = tire.vehicle_name;
-              if (!tiresByVehicle[vehicle_name]) {
-                  tiresByVehicle[vehicle_name] = [];
-              }
-              tiresByVehicle[vehicle_name].push(tire);
-          }
-          
-          const vehicles = [];
-          for (const vehicle_name in tiresByVehicle) {
-              const tires_list = tiresByVehicle[vehicle_name];
-              
-              tires_list.sort((a, b) => (b.initial_ngp - b.current_ogp) - (a.initial_ngp - a.current_ogp));
-              const front_axle = tires_list.slice(0, 2);
-              const rear_axle = tires_list.slice(2);
-              
-              vehicles.push({
-                  name: vehicle_name,
-                  front_axle: front_axle,
-                  rear_axle: rear_axle
-              });
-          }
-          
-          return vehicles;
-      }
-  
-      // Основной код интерфейса
-      document.addEventListener('DOMContentLoaded', function() {
-          const form = document.getElementById('calculationForm');
-          const calculateBtn = document.getElementById('calculateBtn');
-          const resetBtn = document.getElementById('resetBtn');
-          const backBtn = document.getElementById('backBtn');
-          const exportBtn = document.getElementById('exportBtn');
-          const resultsContainer = document.getElementById('resultsContainer');
-          const loading = document.getElementById('loading');
-          const formContainer = document.querySelector('.form-container');
-  
-          form.addEventListener('submit', function(e) {
-              e.preventDefault();
-              
-              loading.style.display = 'flex';
-              
-              // Даем время для отображения загрузки
-              setTimeout(() => {
-                  try {
-                      // Получаем данные из формы
-                      const monthly_mileage = parseNumber(document.getElementById('monthly_mileage').value);
-                      const new_tire_wear_rate = parseNumber(document.getElementById('new_tire_wear_rate').value);
-                      const spare_from_front_wear_rate = parseNumber(document.getElementById('spare_from_front_wear_rate').value);
-                      const new_tire_ngp = parseNumber(document.getElementById('new_tire_ngp').value);
-                      const rotation_standard = parseNumber(document.getElementById('rotation_standard').value);
-                      const max_wear_standard = parseNumber(document.getElementById('max_wear_standard').value);
-                      const months = parseInt(document.getElementById('months').value);
-                      
-                      // Обрабатываем шины на ТС
-                      const vehiclesData = [];
-                      const tiresText = document.getElementById('tires_on_vehicles').value.trim();
-                      if (tiresText) {
-                          const lines = tiresText.split('\n');
-                          for (const line of lines) {
-                              const trimmedLine = line.trim();
-                              if (!trimmedLine) continue;
-                              
-                              const parts = trimmedLine.split(/\s+/);
-                              if (parts.length >= 4) {
-                                  const vehicle_name = parts[0];
-                                  const ogp = parseNumber(parts[1]);
-                                  const ngp = parseNumber(parts[2]);
-                                  const distance = parseNumber(parts[3]);
-                                  
-                                  let wear_rate = 1000; // значение по умолчанию
-                                  if (ngp > ogp) {
-                                      wear_rate = distance / (ngp - ogp);
-                                  }
-                                  
-                                  vehiclesData.push({
-                                      vehicle_name: vehicle_name,
-                                      current_ogp: ogp,
-                                      initial_ngp: ngp,
-                                      wear_rate: wear_rate
-                                  });
-                              }
-                          }
-                      }
-                      
-                      const vehicles = groupTiresByVehicle(vehiclesData);
-                      
-                      // Обрабатываем новые шины
-                      const new_tires_ngp = [];
-                      const newTiresText = document.getElementById('new_tires').value.trim();
-                      if (newTiresText) {
-                          const lines = newTiresText.split('\n');
-                          for (const line of lines) {
-                              const trimmedLine = line.trim();
-                              if (trimmedLine) {
-                                  new_tires_ngp.push(parseNumber(trimmedLine));
-                              }
-                          }
-                      }
-                      
-                      // Обрабатываем подменные шины
-                      const spare_tires = [];
-                      const spareTiresText = document.getElementById('spare_tires').value.trim();
-                      if (spareTiresText) {
-                          const lines = spareTiresText.split('\n');
-                          for (const line of lines) {
-                              const trimmedLine = line.trim();
-                              if (!trimmedLine) continue;
-                              
-                              const parts = trimmedLine.split(/\s+/);
-                              if (parts.length >= 3) {
-                                  const ogp = parseNumber(parts[0]);
-                                  const ngp = parseNumber(parts[1]);
-                                  const distance = parseNumber(parts[2]);
-                                  
-                                  let wear_rate = 500; // значение по умолчанию
-                                  if (ngp > ogp) {
-                                      wear_rate = distance / (ngp - ogp);
-                                  }
-                                  
-                                  spare_tires.push({
-                                      current_ogp: ogp,
-                                      initial_ngp: ngp,
-                                      wear_rate: wear_rate
-                                  });
-                              }
-                          }
-                      }
-                      
-                      // Создаем калькулятор и выполняем расчет
-                      const calculator = new TireRotationCalculator();
-                      calculator.setConstants(monthly_mileage, new_tire_wear_rate, spare_from_front_wear_rate, new_tire_ngp);
-                      
-                      const { results, stats } = calculator.calculateRotation(
-                          vehicles,
-                          new_tires_ngp,
-                          spare_tires,
-                          rotation_standard,
-                          max_wear_standard,
-                          months
-                      );
-                      
-                      // Форматируем результаты
-                      const formattedResults = results.map(result => ({
-                          month: result.month,
-                          new_tires_start: result.new_tires_start,
-                          spare_tires_start: result.spare_tires_start,
-                          front_replacements: result.front_replacements,
-                          rear_replacements: result.rear_replacements,
-                          rear_needed: result.rear_needed,
-                          new_tires_used_for_rear: result.new_tires_used_for_rear,
-                          new_tires_counter: result.new_tires_counter,
-                          spare_tires_end: result.spare_tires_end.length
-                      }));
-                      
-                      // Создаем сводку
-                      const summary = {
-                          total_months: months,
-                          total_front_replacements: stats.total_front_replacements,
-                          total_rear_replacements: stats.total_rear_replacements,
-                          new_tires_used_for_rear: stats.new_tires_used_for_rear,
-                          final_new_tires: results.length > 0 ? results[results.length - 1].new_tires_counter : 0,
-                          final_spare_tires: results.length > 0 ? results[results.length - 1].spare_tires_end.length : 0,
-                          monthly_mileage: monthly_mileage,
-                          new_tire_wear_rate: new_tire_wear_rate,
-                          spare_from_front_wear_rate: spare_from_front_wear_rate,
-                          new_tire_ngp: new_tire_ngp,
-                          rotation_standard: rotation_standard,
-                          max_wear_standard: max_wear_standard
-                      };
-                      
-                      loading.style.display = 'none';
-                      displayResults({
-                          success: true,
-                          results: formattedResults,
-                          summary: summary,
-                          vehicle_count: vehicles.length,
-                          new_tires_count: new_tires_ngp.length,
-                          spare_tires_count: spare_tires.length
-                      });
-                      
-                  } catch (error) {
-                      loading.style.display = 'none';
-                      alert('Ошибка расчета: ' + error.message);
-                      console.error(error);
-                  }
-              }, 100);
-          });
-          
-          resetBtn.addEventListener('click', function() {
-              if (confirm('Вы уверены, что хотите сбросить все поля?')) {
-                  form.reset();
-              }
-          });
-          
-          backBtn.addEventListener('click', function() {
-              resultsContainer.style.display = 'none';
-              formContainer.style.display = 'block';
-          });
-          
-          exportBtn.addEventListener('click', function() {
-              exportToExcel();
-          });
-          
-          function displayResults(data) {
-              if (!data.success) {
-                  alert('Ошибка: ' + data.error);
-                  return;
-              }
-              
-              formContainer.style.display = 'none';
-              resultsContainer.style.display = 'block';
-              
-              displaySummary(data.summary, data.vehicle_count, data.new_tires_count, data.spare_tires_count);
-              displayResultsTable(data.results);
-          }
-          
-          function displaySummary(summary, vehicleCount, newTiresCount, spareTiresCount) {
-              const summaryBox = document.getElementById('summaryBox');
-              
-              let deficitHTML = '';
-              if (summary.final_new_tires < 0) {
-                  deficitHTML = `
-                      <div class="summary-item warning">
-                          <strong>Требуется к закупке:</strong>
-                          <div class="value">${Math.abs(summary.final_new_tires)} шт.</div>
-                      </div>
-                  `;
-              }
-              
-              summaryBox.innerHTML = `
-                  <h3>Сводка по результатам</h3>
-                  <div class="summary-content">
-                      <div class="summary-item">
-                          <strong>Период расчета:</strong>
-                          <div class="value">${summary.total_months} месяцев</div>
-                      </div>
-                      <div class="summary-item">
-                          <strong>Транспортных средств:</strong>
-                          <div class="value">${vehicleCount} шт.</div>
-                      </div>
-                      <div class="summary-item">
-                          <strong>Всего замен на передней оси:</strong>
-                          <div class="value">${summary.total_front_replacements} шт.</div>
-                      </div>
-                      <div class="summary-item">
-                          <strong>Всего замен на задней оси:</strong>
-                          <div class="value">${summary.total_rear_replacements} шт.</div>
-                      </div>
-                      <div class="summary-item">
-                          <strong>Из них новых шин использовано для задней оси:</strong>
-                          <div class="value">${summary.new_tires_used_for_rear} шт.</div>
-                      </div>
-                      <div class="summary-item">
-                          <strong>Остаток новых шин после периода:</strong>
-                          <div class="value">${summary.final_new_tires} шт.</div>
-                      </div>
-                      <div class="summary-item">
-                          <strong>Остаток подменных шин после периода:</strong>
-                          <div class="value">${summary.final_spare_tires} шт.</div>
-                      </div>
-                      ${deficitHTML}
-                      <div class="summary-item">
-                          <strong>Месячный пробег:</strong>
-                          <div class="value">${summary.monthly_mileage} км</div>
-                      </div>
-                      <div class="summary-item">
-                          <strong>Норматив ротации:</strong>
-                          <div class="value">${summary.rotation_standard} мм</div>
-                      </div>
-                      <div class="summary-item">
-                          <strong>НПИ:</strong>
-                          <div class="value">${summary.max_wear_standard} мм</div>
-                      </div>
-                  </div>
-              `;
-          }
-          
-          function displayResultsTable(results) {
-              const tbody = document.getElementById('resultsTableBody');
-              tbody.innerHTML = '';
-              
-              results.forEach(result => {
-                  const row = document.createElement('tr');
-                  
-                  const newTiresStart = result.new_tires_start < 0 ? 
-                      `(${Math.abs(result.new_tires_start)})` : result.new_tires_start;
-                  const newTiresCounter = result.new_tires_counter < 0 ? 
-                      `(${Math.abs(result.new_tires_counter)})` : result.new_tires_counter;
-                  
-                  row.innerHTML = `
-                      <td>${result.month}</td>
-                      <td>${newTiresStart}</td>
-                      <td>${result.spare_tires_start}</td>
-                      <td>${result.front_replacements}</td>
-                      <td>${result.rear_replacements}</td>
-                      <td>${newTiresCounter}</td>
-                      <td>${result.spare_tires_end}</td>
-                      <td>${result.new_tires_used_for_rear}</td>
-                  `;
-                  
-                  tbody.appendChild(row);
-              });
-          }
-          
-          function exportToExcel() {
-              const table = document.getElementById('resultsTable');
-              if (!table || table.rows.length <= 1) {
-                  alert('Нет данных для экспорта');
-                  return;
-              }
-              
-              // Используем библиотеку XLSX
-              const wb = XLSX.utils.book_new();
-              const ws = XLSX.utils.table_to_sheet(table);
-              XLSX.utils.book_append_sheet(wb, ws, "Результаты");
-              XLSX.writeFile(wb, "rotation_results.xlsx");
-          }
-           // Динамический расчет износа за месяц
+    <script>
+        // Класс калькулятора (перенесен из Python)
+        class TireRotationCalculator {
+            constructor() {
+                this.monthly_mileage = null;
+                this.new_tire_wear_rate = null;
+                this.spare_from_front_wear_rate = null;
+                this.new_tire_ngp = 80;
+                this.max_ogp_diff_front = 5;
+            }
+            
+            setConstants(monthly_mileage, new_tire_wear_rate, spare_from_front_wear_rate, new_tire_ngp) {
+                this.monthly_mileage = monthly_mileage;
+                this.new_tire_wear_rate = new_tire_wear_rate;
+                this.spare_from_front_wear_rate = spare_from_front_wear_rate;
+                this.new_tire_ngp = new_tire_ngp;
+            }
+            
+            calculateRotation(vehicles, new_tires_ngp, spare_tires, rotation_standard, max_wear_standard, months) {
+                const results = [];
+                
+                let current_new_tires = new_tires_ngp.map(ngp => ({
+                    current_ogp: ngp,
+                    initial_ngp: ngp,
+                    wear_rate: null,
+                    is_new: true
+                }));
+                
+                let current_spare_tires = [...spare_tires];
+                let current_vehicles = this._copyVehicles(vehicles);
+                
+                let new_tires_counter = new_tires_ngp.length;
+                
+                const stats = {
+                    new_tires_used_for_rear: 0,
+                    total_rear_replacements: 0,
+                    total_front_replacements: 0,
+                };
+                
+                for (let month = 1; month <= months; month++) {
+                    const month_result = this._calculateMonth(
+                        current_vehicles, current_new_tires, current_spare_tires, new_tires_counter,
+                        rotation_standard, max_wear_standard, month, stats
+                    );
+                    results.push(month_result);
+                    
+                    current_new_tires = month_result.new_tires_end;
+                    current_spare_tires = month_result.spare_tires_end;
+                    new_tires_counter = month_result.new_tires_counter;
+                    current_vehicles = month_result.vehicles_state;
+                }
+                
+                return { results, stats };
+            }
+            
+            _copyVehicles(vehicles) {
+                return vehicles.map(vehicle => ({
+                    name: vehicle.name,
+                    front_axle: vehicle.front_axle.map(tire => ({...tire})),
+                    rear_axle: vehicle.rear_axle.map(tire => ({...tire}))
+                }));
+            }
+            
+            _calculateMonth(vehicles, new_tires, spare_tires, new_tires_counter, rotation_standard, max_wear_standard, month, stats) {
+                let front_replacements = 0;
+                let rear_replacements = 0;
+                let rear_needed = 0;
+                let new_tires_used_for_rear_this_month = 0;
+                let current_new_tires = [...new_tires];
+                let current_spare_tires = [...spare_tires];
+                let current_new_tires_counter = new_tires_counter;
+                
+                // Расчет износа за месяц
+                for (const vehicle of vehicles) {
+                    // Передняя ось
+                    for (const tire of vehicle.front_axle) {
+                        let wear_per_month;
+                        if (tire.is_new || tire.wear_rate === null) {
+                            wear_per_month = this.monthly_mileage / this.new_tire_wear_rate;
+                            tire.wear_rate = this.new_tire_wear_rate;
+                            tire.is_new = false;
+                        } else {
+                            wear_per_month = this.monthly_mileage / tire.wear_rate;
+                        }
+                        tire.current_ogp = Math.max(0, tire.current_ogp - wear_per_month);
+                    }
+                    
+                    // Задняя ось
+                    for (const tire of vehicle.rear_axle) {
+                        const wear_per_month = this.monthly_mileage / tire.wear_rate;
+                        tire.current_ogp = Math.max(0, tire.current_ogp - wear_per_month);
+                    }
+                }
+                
+                // ШАГ 1: Замена на передней оси
+                const tires_to_spare = [];
+                
+                for (const vehicle of vehicles) {
+                    let needs_replacement = false;
+                    for (const tire of vehicle.front_axle) {
+                        const rotation_threshold = tire.initial_ngp - rotation_standard;
+                        if (tire.current_ogp <= rotation_threshold) {
+                            needs_replacement = true;
+                            break;
+                        }
+                    }
+                    
+                    if (needs_replacement) {
+                        const needed_tires = 2;
+                        front_replacements += 2;
+                        stats.total_front_replacements += 2;
+                        
+                        current_new_tires_counter -= needed_tires;
+                        
+                        for (let i = 0; i < 2; i++) {
+                            let new_tire;
+                            if (current_new_tires.length > 0) {
+                                new_tire = current_new_tires.shift();
+                            } else {
+                                new_tire = {
+                                    current_ogp: this.new_tire_ngp,
+                                    initial_ngp: this.new_tire_ngp,
+                                    wear_rate: this.new_tire_wear_rate,
+                                    is_new: true
+                                };
+                            }
+                            
+                            const old_tire = {...vehicle.front_axle[i]};
+                            if (old_tire.wear_rate !== this.new_tire_wear_rate) {
+                                old_tire.wear_rate = this.spare_from_front_wear_rate;
+                                delete old_tire.is_new;
+                            }
+                            tires_to_spare.push(old_tire);
+                            
+                            vehicle.front_axle[i] = new_tire;
+                        }
+                    }
+                }
+                
+                current_spare_tires.push(...tires_to_spare);
+                
+                // ШАГ 2: Замена на задней оси
+                for (const vehicle of vehicles) {
+                    for (let i = 0; i < vehicle.rear_axle.length; i++) {
+                        const tire = vehicle.rear_axle[i];
+                        if (tire.current_ogp <= max_wear_standard) {
+                            rear_needed++;
+                            
+                            if (current_spare_tires.length > 0) {
+                                rear_replacements++;
+                                stats.total_rear_replacements++;
+                                const spare_tire = current_spare_tires.shift();
+                                vehicle.rear_axle[i] = spare_tire;
+                            } else {
+                                rear_replacements++;
+                                stats.total_rear_replacements++;
+                                
+                                current_new_tires_counter--;
+                                new_tires_used_for_rear_this_month++;
+                                stats.new_tires_used_for_rear++;
+                                
+                                if (current_new_tires.length > 0) {
+                                    const new_tire = current_new_tires.shift();
+                                    new_tire.wear_rate = this.spare_from_front_wear_rate;
+                                    delete new_tire.is_new;
+                                    vehicle.rear_axle[i] = new_tire;
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                return {
+                    month: month,
+                    new_tires_start: new_tires_counter,
+                    spare_tires_start: spare_tires.length,
+                    front_replacements: front_replacements,
+                    rear_replacements: rear_replacements,
+                    rear_needed: rear_needed,
+                    new_tires_used_for_rear: new_tires_used_for_rear_this_month,
+                    new_tires_end: current_new_tires,
+                    new_tires_counter: current_new_tires_counter,
+                    spare_tires_end: current_spare_tires,
+                    spare_deficit: 0,
+                    vehicles_state: vehicles
+                };
+            }
+        }
+
+        // Вспомогательные функции
+        function parseNumber(value) {
+            if (!value) return 0;
+            const str = String(value).replace(',', '.');
+            const num = parseFloat(str);
+            return isNaN(num) ? 0 : num;
+        }
+
+        function groupTiresByVehicle(tiresData) {
+            const tiresByVehicle = {};
+            for (const tire of tiresData) {
+                const vehicle_name = tire.vehicle_name;
+                if (!tiresByVehicle[vehicle_name]) {
+                    tiresByVehicle[vehicle_name] = [];
+                }
+                tiresByVehicle[vehicle_name].push(tire);
+            }
+            
+            const vehicles = [];
+            for (const vehicle_name in tiresByVehicle) {
+                const tires_list = tiresByVehicle[vehicle_name];
+                
+                tires_list.sort((a, b) => (b.initial_ngp - b.current_ogp) - (a.initial_ngp - a.current_ogp));
+                const front_axle = tires_list.slice(0, 2);
+                const rear_axle = tires_list.slice(2);
+                
+                vehicles.push({
+                    name: vehicle_name,
+                    front_axle: front_axle,
+                    rear_axle: rear_axle
+                });
+            }
+            
+            return vehicles;
+        }
+
+        // Функция динамического расчета износа
         function updateWearCalculation() {
             const monthlyMileage = parseNumber(document.getElementById('monthly_mileage').value);
             const newTireWearRate = parseNumber(document.getElementById('new_tire_wear_rate').value);
@@ -1018,50 +750,27 @@
                 infoHTML += `<div class="wear-item">Шина из подмены: <strong>${spareWearPerMonth} мм/мес</strong></div>`;
             }
             
+            if (!infoHTML) {
+                infoHTML = '<div class="wear-item">Введите пробег и скорости износа</div>';
+            }
+            
             wearInfo.innerHTML = infoHTML;
         }
-        
-        // Добавь эти стили в CSS
-        const style = document.createElement('style');
-        style.textContent = `
-            .wear-calculation {
-                margin-top: 5px;
-                padding: 10px;
-                background: rgba(52, 152, 219, 0.1);
-                border-radius: 6px;
-                font-size: 0.9rem;
-                color: #2c3e50;
-                border-left: 3px solid #3498db;
-            }
-            
-            .wear-item {
-                margin: 5px 0;
-                padding: 5px;
-                display: flex;
-                justify-content: space-between;
-            }
-            
-            .wear-item strong {
-                color: #e74c3c;
-            }
-        `;
-        document.head.appendChild(style);
-        
-        // Добавь этот HTML в блок параметров расчета (после поля "Скорость износа (подмена)"):
-        // <div class="wear-calculation" id="wearInfo"></div>
-        
-        // И добавь обработчики событий
+
+        // Основной код интерфейса
         document.addEventListener('DOMContentLoaded', function() {
-            // Добавляем контейнер для расчета износа
-            const spareWearGroup = document.querySelector('label[for="spare_from_front_wear_rate"]').parentNode;
-            const wearContainer = document.createElement('div');
-            wearContainer.className = 'wear-calculation';
-            wearContainer.id = 'wearInfo';
-            spareWearGroup.appendChild(wearContainer);
-            
-            // Добавляем обработчики изменения полей
-            const fieldsToWatch = ['monthly_mileage', 'new_tire_wear_rate', 'spare_from_front_wear_rate'];
-            fieldsToWatch.forEach(fieldId => {
+            const form = document.getElementById('calculationForm');
+            const calculateBtn = document.getElementById('calculateBtn');
+            const resetBtn = document.getElementById('resetBtn');
+            const backBtn = document.getElementById('backBtn');
+            const exportBtn = document.getElementById('exportBtn');
+            const resultsContainer = document.getElementById('resultsContainer');
+            const loading = document.getElementById('loading');
+            const formContainer = document.querySelector('.form-container');
+
+            // Добавляем обработчики для динамического расчета износа
+            const wearFields = ['monthly_mileage', 'new_tire_wear_rate', 'spare_from_front_wear_rate'];
+            wearFields.forEach(fieldId => {
                 const field = document.getElementById(fieldId);
                 if (field) {
                     field.addEventListener('input', updateWearCalculation);
@@ -1069,9 +778,292 @@
                 }
             });
             
-            // Инициализируем расчет
+            // Инициализируем расчет износа
             updateWearCalculation();
-        });   
-  </script>
+
+            form.addEventListener('submit', function(e) {
+                e.preventDefault();
+                
+                loading.style.display = 'flex';
+                
+                // Даем время для отображения загрузки
+                setTimeout(() => {
+                    try {
+                        // Получаем данные из формы
+                        const monthly_mileage = parseNumber(document.getElementById('monthly_mileage').value);
+                        const new_tire_wear_rate = parseNumber(document.getElementById('new_tire_wear_rate').value);
+                        const spare_from_front_wear_rate = parseNumber(document.getElementById('spare_from_front_wear_rate').value);
+                        const new_tire_ngp = parseNumber(document.getElementById('new_tire_ngp').value);
+                        const rotation_standard = parseNumber(document.getElementById('rotation_standard').value);
+                        const max_wear_standard = parseNumber(document.getElementById('max_wear_standard').value);
+                        const months = parseInt(document.getElementById('months').value);
+                        
+                        // Обрабатываем шины на ТС
+                        const vehiclesData = [];
+                        const tiresText = document.getElementById('tires_on_vehicles').value.trim();
+                        if (tiresText) {
+                            const lines = tiresText.split('\n');
+                            for (const line of lines) {
+                                const trimmedLine = line.trim();
+                                if (!trimmedLine) continue;
+                                
+                                const parts = trimmedLine.split(/\s+/);
+                                if (parts.length >= 4) {
+                                    const vehicle_name = parts[0];
+                                    const ogp = parseNumber(parts[1]);
+                                    const ngp = parseNumber(parts[2]);
+                                    const distance = parseNumber(parts[3]);
+                                    
+                                    let wear_rate = 1000; // значение по умолчанию
+                                    if (ngp > ogp) {
+                                        wear_rate = distance / (ngp - ogp);
+                                    }
+                                    
+                                    vehiclesData.push({
+                                        vehicle_name: vehicle_name,
+                                        current_ogp: ogp,
+                                        initial_ngp: ngp,
+                                        wear_rate: wear_rate
+                                    });
+                                }
+                            }
+                        }
+                        
+                        const vehicles = groupTiresByVehicle(vehiclesData);
+                        
+                        // Обрабатываем новые шины
+                        const new_tires_ngp = [];
+                        const newTiresText = document.getElementById('new_tires').value.trim();
+                        if (newTiresText) {
+                            const lines = newTiresText.split('\n');
+                            for (const line of lines) {
+                                const trimmedLine = line.trim();
+                                if (trimmedLine) {
+                                    new_tires_ngp.push(parseNumber(trimmedLine));
+                                }
+                            }
+                        }
+                        
+                        // Обрабатываем подменные шины
+                        const spare_tires = [];
+                        const spareTiresText = document.getElementById('spare_tires').value.trim();
+                        if (spareTiresText) {
+                            const lines = spareTiresText.split('\n');
+                            for (const line of lines) {
+                                const trimmedLine = line.trim();
+                                if (!trimmedLine) continue;
+                                
+                                const parts = trimmedLine.split(/\s+/);
+                                if (parts.length >= 3) {
+                                    const ogp = parseNumber(parts[0]);
+                                    const ngp = parseNumber(parts[1]);
+                                    const distance = parseNumber(parts[2]);
+                                    
+                                    let wear_rate = 500; // значение по умолчанию
+                                    if (ngp > ogp) {
+                                        wear_rate = distance / (ngp - ogp);
+                                    }
+                                    
+                                    spare_tires.push({
+                                        current_ogp: ogp,
+                                        initial_ngp: ngp,
+                                        wear_rate: wear_rate
+                                    });
+                                }
+                            }
+                        }
+                        
+                        // Создаем калькулятор и выполняем расчет
+                        const calculator = new TireRotationCalculator();
+                        calculator.setConstants(monthly_mileage, new_tire_wear_rate, spare_from_front_wear_rate, new_tire_ngp);
+                        
+                        const { results, stats } = calculator.calculateRotation(
+                            vehicles,
+                            new_tires_ngp,
+                            spare_tires,
+                            rotation_standard,
+                            max_wear_standard,
+                            months
+                        );
+                        
+                        // Форматируем результаты
+                        const formattedResults = results.map(result => ({
+                            month: result.month,
+                            new_tires_start: result.new_tires_start,
+                            spare_tires_start: result.spare_tires_start,
+                            front_replacements: result.front_replacements,
+                            rear_replacements: result.rear_replacements,
+                            rear_needed: result.rear_needed,
+                            new_tires_used_for_rear: result.new_tires_used_for_rear,
+                            new_tires_counter: result.new_tires_counter,
+                            spare_tires_end: result.spare_tires_end.length
+                        }));
+                        
+                        // Создаем сводку
+                        const summary = {
+                            total_months: months,
+                            total_front_replacements: stats.total_front_replacements,
+                            total_rear_replacements: stats.total_rear_replacements,
+                            new_tires_used_for_rear: stats.new_tires_used_for_rear,
+                            final_new_tires: results.length > 0 ? results[results.length - 1].new_tires_counter : 0,
+                            final_spare_tires: results.length > 0 ? results[results.length - 1].spare_tires_end.length : 0,
+                            monthly_mileage: monthly_mileage,
+                            new_tire_wear_rate: new_tire_wear_rate,
+                            spare_from_front_wear_rate: spare_from_front_wear_rate,
+                            new_tire_ngp: new_tire_ngp,
+                            rotation_standard: rotation_standard,
+                            max_wear_standard: max_wear_standard
+                        };
+                        
+                        loading.style.display = 'none';
+                        displayResults({
+                            success: true,
+                            results: formattedResults,
+                            summary: summary,
+                            vehicle_count: vehicles.length,
+                            new_tires_count: new_tires_ngp.length,
+                            spare_tires_count: spare_tires.length
+                        });
+                        
+                    } catch (error) {
+                        loading.style.display = 'none';
+                        alert('Ошибка расчета: ' + error.message);
+                        console.error(error);
+                    }
+                }, 100);
+            });
+            
+            resetBtn.addEventListener('click', function() {
+                if (confirm('Вы уверены, что хотите сбросить все поля?')) {
+                    form.reset();
+                    updateWearCalculation(); // Обновляем расчет износа после сброса
+                }
+            });
+            
+            backBtn.addEventListener('click', function() {
+                resultsContainer.style.display = 'none';
+                formContainer.style.display = 'block';
+            });
+            
+            exportBtn.addEventListener('click', function() {
+                exportToExcel();
+            });
+            
+            function displayResults(data) {
+                if (!data.success) {
+                    alert('Ошибка: ' + data.error);
+                    return;
+                }
+                
+                formContainer.style.display = 'none';
+                resultsContainer.style.display = 'block';
+                
+                displaySummary(data.summary, data.vehicle_count, data.new_tires_count, data.spare_tires_count);
+                displayResultsTable(data.results);
+            }
+            
+            function displaySummary(summary, vehicleCount, newTiresCount, spareTiresCount) {
+                const summaryBox = document.getElementById('summaryBox');
+                
+                let deficitHTML = '';
+                if (summary.final_new_tires < 0) {
+                    deficitHTML = `
+                        <div class="summary-item warning">
+                            <strong>Требуется к закупке:</strong>
+                            <div class="value">${Math.abs(summary.final_new_tires)} шт.</div>
+                        </div>
+                    `;
+                }
+                
+                summaryBox.innerHTML = `
+                    <h3>Сводка по результатам</h3>
+                    <div class="summary-content">
+                        <div class="summary-item">
+                            <strong>Период расчета:</strong>
+                            <div class="value">${summary.total_months} месяцев</div>
+                        </div>
+                        <div class="summary-item">
+                            <strong>Транспортных средств:</strong>
+                            <div class="value">${vehicleCount} шт.</div>
+                        </div>
+                        <div class="summary-item">
+                            <strong>Всего замен на передней оси:</strong>
+                            <div class="value">${summary.total_front_replacements} шт.</div>
+                        </div>
+                        <div class="summary-item">
+                            <strong>Всего замен на задней оси:</strong>
+                            <div class="value">${summary.total_rear_replacements} шт.</div>
+                        </div>
+                        <div class="summary-item">
+                            <strong>Из них новых шин использовано для задней оси:</strong>
+                            <div class="value">${summary.new_tires_used_for_rear} шт.</div>
+                        </div>
+                        <div class="summary-item">
+                            <strong>Остаток новых шин после периода:</strong>
+                            <div class="value">${summary.final_new_tires} шт.</div>
+                        </div>
+                        <div class="summary-item">
+                            <strong>Остаток подменных шин после периода:</strong>
+                            <div class="value">${summary.final_spare_tires} шт.</div>
+                        </div>
+                        ${deficitHTML}
+                        <div class="summary-item">
+                            <strong>Месячный пробег:</strong>
+                            <div class="value">${summary.monthly_mileage} км</div>
+                        </div>
+                        <div class="summary-item">
+                            <strong>Норматив ротации:</strong>
+                            <div class="value">${summary.rotation_standard} мм</div>
+                        </div>
+                        <div class="summary-item">
+                            <strong>НПИ:</strong>
+                            <div class="value">${summary.max_wear_standard} мм</div>
+                        </div>
+                    </div>
+                `;
+            }
+            
+            function displayResultsTable(results) {
+                const tbody = document.getElementById('resultsTableBody');
+                tbody.innerHTML = '';
+                
+                results.forEach(result => {
+                    const row = document.createElement('tr');
+                    
+                    const newTiresStart = result.new_tires_start < 0 ? 
+                        `(${Math.abs(result.new_tires_start)})` : result.new_tires_start;
+                    const newTiresCounter = result.new_tires_counter < 0 ? 
+                        `(${Math.abs(result.new_tires_counter)})` : result.new_tires_counter;
+                    
+                    row.innerHTML = `
+                        <td>${result.month}</td>
+                        <td>${newTiresStart}</td>
+                        <td>${result.spare_tires_start}</td>
+                        <td>${result.front_replacements}</td>
+                        <td>${result.rear_replacements}</td>
+                        <td>${newTiresCounter}</td>
+                        <td>${result.spare_tires_end}</td>
+                        <td>${result.new_tires_used_for_rear}</td>
+                    `;
+                    
+                    tbody.appendChild(row);
+                });
+            }
+            
+            function exportToExcel() {
+                const table = document.getElementById('resultsTable');
+                if (!table || table.rows.length <= 1) {
+                    alert('Нет данных для экспорта');
+                    return;
+                }
+                
+                // Используем библиотеку XLSX
+                const wb = XLSX.utils.book_new();
+                const ws = XLSX.utils.table_to_sheet(table);
+                XLSX.utils.book_append_sheet(wb, ws, "Результаты");
+                XLSX.writeFile(wb, "rotation_results.xlsx");
+            }
+        });
+    </script>
 </body>
 </html>

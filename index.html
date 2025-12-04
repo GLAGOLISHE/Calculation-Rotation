@@ -506,6 +506,7 @@
 
     <script>
         // Класс калькулятора (перенесен из Python)
+        // Вставь этот исправленный класс вместо старого
         class TireRotationCalculator {
             constructor() {
                 this.monthly_mileage = null;
@@ -567,6 +568,11 @@
                 }));
             }
             
+            _checkFrontAxlePair(tire1, tire2) {
+                const diff = Math.abs(tire1.current_ogp - tire2.current_ogp);
+                return diff <= this.max_ogp_diff_front;
+            }
+            
             _calculateMonth(vehicles, new_tires, spare_tires, new_tires_counter, rotation_standard, max_wear_standard, month, stats) {
                 let front_replacements = 0;
                 let rear_replacements = 0;
@@ -598,20 +604,28 @@
                     }
                 }
                 
-                // ШАГ 1: Замена на передней оси
+                // ШАГ 1: Замена на передней оси (ТОЧНО КАК В ПАЙТОН)
                 const tires_to_spare = [];
                 
                 for (const vehicle of vehicles) {
                     let needs_replacement = false;
-                    for (const tire of vehicle.front_axle) {
-                        const rotation_threshold = tire.initial_ngp - rotation_standard;
-                        if (tire.current_ogp <= rotation_threshold) {
-                            needs_replacement = true;
-                            break;
-                        }
+                    
+                    // Проверяем пару передних шин
+                    if (vehicle.front_axle.length === 2) {
+                        const [tire1, tire2] = vehicle.front_axle;
+                        const rotation_threshold1 = tire1.initial_ngp - rotation_standard;
+                        const rotation_threshold2 = tire2.initial_ngp - rotation_standard;
+                        
+                        // В оригинале: если ЛЮБАЯ шина достигла порога И пара не сбалансирована
+                        const tire1_needs = tire1.current_ogp <= rotation_threshold1;
+                        const tire2_needs = tire2.current_ogp <= rotation_threshold2;
+                        const pair_ok = this._checkFrontAxlePair(tire1, tire2);
+                        
+                        needs_replacement = (tire1_needs || tire2_needs) && !pair_ok;
                     }
                     
                     if (needs_replacement) {
+                        // Всегда нужно 2 шины для замены на передней оси
                         const needed_tires = 2;
                         front_replacements += 2;
                         stats.total_front_replacements += 2;
@@ -645,19 +659,22 @@
                 
                 current_spare_tires.push(...tires_to_spare);
                 
-                // ШАГ 2: Замена на задней оси
+                // ШАГ 2: Замена на задней оси (ТОЧНО КАК В ПАЙТОН)
                 for (const vehicle of vehicles) {
                     for (let i = 0; i < vehicle.rear_axle.length; i++) {
                         const tire = vehicle.rear_axle[i];
                         if (tire.current_ogp <= max_wear_standard) {
                             rear_needed++;
                             
+                            // Пытаемся взять из подмены
                             if (current_spare_tires.length > 0) {
                                 rear_replacements++;
                                 stats.total_rear_replacements++;
                                 const spare_tire = current_spare_tires.shift();
                                 vehicle.rear_axle[i] = spare_tire;
-                            } else {
+                            } 
+                            // Если нет в подмене, берем новые
+                            else {
                                 rear_replacements++;
                                 stats.total_rear_replacements++;
                                 
@@ -692,7 +709,6 @@
                 };
             }
         }
-
         // Вспомогательные функции
         function parseNumber(value) {
             if (!value) return 0;

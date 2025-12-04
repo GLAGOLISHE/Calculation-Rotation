@@ -997,7 +997,81 @@
               XLSX.utils.book_append_sheet(wb, ws, "Результаты");
               XLSX.writeFile(wb, "rotation_results.xlsx");
           }
-      });
+           // Динамический расчет износа за месяц
+        function updateWearCalculation() {
+            const monthlyMileage = parseNumber(document.getElementById('monthly_mileage').value);
+            const newTireWearRate = parseNumber(document.getElementById('new_tire_wear_rate').value);
+            const spareWearRate = parseNumber(document.getElementById('spare_from_front_wear_rate').value);
+            
+            const wearInfo = document.getElementById('wearInfo');
+            if (!wearInfo) return;
+            
+            let infoHTML = '';
+            
+            if (monthlyMileage > 0 && newTireWearRate > 0) {
+                const newTireWearPerMonth = (monthlyMileage / newTireWearRate).toFixed(2);
+                infoHTML += `<div class="wear-item">Новая шина: <strong>${newTireWearPerMonth} мм/мес</strong></div>`;
+            }
+            
+            if (monthlyMileage > 0 && spareWearRate > 0) {
+                const spareWearPerMonth = (monthlyMileage / spareWearRate).toFixed(2);
+                infoHTML += `<div class="wear-item">Шина из подмены: <strong>${spareWearPerMonth} мм/мес</strong></div>`;
+            }
+            
+            wearInfo.innerHTML = infoHTML;
+        }
+        
+        // Добавь эти стили в CSS
+        const style = document.createElement('style');
+        style.textContent = `
+            .wear-calculation {
+                margin-top: 5px;
+                padding: 10px;
+                background: rgba(52, 152, 219, 0.1);
+                border-radius: 6px;
+                font-size: 0.9rem;
+                color: #2c3e50;
+                border-left: 3px solid #3498db;
+            }
+            
+            .wear-item {
+                margin: 5px 0;
+                padding: 5px;
+                display: flex;
+                justify-content: space-between;
+            }
+            
+            .wear-item strong {
+                color: #e74c3c;
+            }
+        `;
+        document.head.appendChild(style);
+        
+        // Добавь этот HTML в блок параметров расчета (после поля "Скорость износа (подмена)"):
+        // <div class="wear-calculation" id="wearInfo"></div>
+        
+        // И добавь обработчики событий
+        document.addEventListener('DOMContentLoaded', function() {
+            // Добавляем контейнер для расчета износа
+            const spareWearGroup = document.querySelector('label[for="spare_from_front_wear_rate"]').parentNode;
+            const wearContainer = document.createElement('div');
+            wearContainer.className = 'wear-calculation';
+            wearContainer.id = 'wearInfo';
+            spareWearGroup.appendChild(wearContainer);
+            
+            // Добавляем обработчики изменения полей
+            const fieldsToWatch = ['monthly_mileage', 'new_tire_wear_rate', 'spare_from_front_wear_rate'];
+            fieldsToWatch.forEach(fieldId => {
+                const field = document.getElementById(fieldId);
+                if (field) {
+                    field.addEventListener('input', updateWearCalculation);
+                    field.addEventListener('change', updateWearCalculation);
+                }
+            });
+            
+            // Инициализируем расчет
+            updateWearCalculation();
+        });   
   </script>
 </body>
 </html>
